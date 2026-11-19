@@ -170,7 +170,7 @@ export function render(segs, pool, dir) {
   const audio = [];
   let t = 0;
   for (const [i, s] of segs.entries()) {
-    run("uvx", ["edge-tts", "--voice", "ru-RU-DmitryNeural", "--rate=+10%", "--text", say(s.text), "--write-media", `${dir}/a${i}.mp3`, "--write-subtitles", `${dir}/a${i}.srt`]);
+    run("uvx", ["--from", "edge-tts@latest", "edge-tts", "--voice", "ru-RU-DmitryNeural", "--rate=+10%", "--text", say(s.text), "--write-media", `${dir}/a${i}.mp3`, "--write-subtitles", `${dir}/a${i}.srt`]);
     const d = dur(`${dir}/a${i}.mp3`) + 0.35;
     if (s.optional && t + d > MAX - 5) continue; // на финальную фразу место оставляем
     // фраза длиннее ~5 с делится на несколько кадров: дальше по статье, по кругу
@@ -295,7 +295,11 @@ async function publish(args, title) {
     });
   } catch (e) {
     const url = draftUrl(String(e.stderr));
-    if (!url) throw e;
+    if (!url) {
+      // протухшие куки и прочие сбои: владелец узнаёт сразу, а не по пустой ленте
+      await notify(`Дзен-автопост упал (${a.video ? "ролик" : "статья"}): ${String(e.stderr).match(/^Error: .*$/m)?.[0] ?? e.message}`);
+      throw e;
+    }
     // капча: черновик остаётся, владелец публикует руками по ссылке из Telegram, очередь идёт дальше
     posted[slug] = { draft: url, date: new Date().toISOString() };
     writeFileSync(STATE, JSON.stringify(posted, null, 1));
