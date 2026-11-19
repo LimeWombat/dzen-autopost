@@ -1,0 +1,9 @@
+[Unit]
+Description=gta6spot: next article -> Dzen channel gta6info, one article per run
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/dzen-autopost
+ExecStart=/usr/bin/flock -n /run/dzen-autopost.lock /usr/bin/node /root/dzen-autopost/gta6spot.mjs

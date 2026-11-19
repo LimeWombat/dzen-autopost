@@ -1,0 +1,12 @@
+[Unit]
+Description=gta6spot -> Dzen 4 times a day (DTF goes twice)
+
+[Timer]
+OnCalendar=*-*-* 09:00:00 Europe/Moscow
+OnCalendar=*-*-* 13:00:00 Europe/Moscow
+OnCalendar=*-*-* 17:00:00 Europe/Moscow
+OnCalendar=*-*-* 21:00:00 Europe/Moscow
+Persistent=true
+
+[Install]
+WantedBy=timers.target
