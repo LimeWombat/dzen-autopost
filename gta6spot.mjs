@@ -2,12 +2,13 @@
 // Следующая статья gta6spot.ru → статья в Дзен-канале (gta6info): вступление и первые разделы с картинками,
 // дальше список остальных разделов и ссылка на полную версию на сайте. Тот же анонс, что уходит на DTF.
 //
-//   node gta6spot.mjs [--slug kak-prodat-mashinu-gta-6] [--video] [--draft] [--dry]
+//   node gta6spot.mjs [--slug kak-prodat-mashinu-gta-6] [--video | --post] [--draft] [--dry]
 //
 // Без --slug берёт первую ещё не опубликованную: сначала хайп из baits.json (с его заголовком), потом гайды (/tema/gaydy/), потом остальное из sitemap.
 // Опубликованные пишет в posted.json ({slug: {id, url, date}}). Таймер: 4 раза в день, по одной статье, через flock.
 // --video: вместо статьи вертикальный ролик до минуты (озвучка edge-tts, кадры статьи, субтитры, стинг в конце),
 // состояние в posted-video.json. Нужны ffmpeg и uvx. --dry с --video собирает mp4 и не грузит.
+// --post: короткий пост в ленту (заголовок, вступление, ссылка, до 4 картинок галереей), состояние в posted-post.json.
 import assert from "node:assert";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -16,8 +17,9 @@ import { parseArgs } from "node:util";
 const SITE = "https://gta6spot.ru";
 const SECTIONS = 2; // сколько разделов статьи идут в анонс целиком
 const IMAGES = 4;
-const { values: a } = parseArgs({ options: { slug: { type: "string" }, video: { type: "boolean" }, draft: { type: "boolean" }, dry: { type: "boolean" } } });
-const STATE = new URL(a.video ? "posted-video.json" : "posted.json", import.meta.url);
+const { values: a } = parseArgs({ options: { slug: { type: "string" }, video: { type: "boolean" }, post: { type: "boolean" }, draft: { type: "boolean" }, dry: { type: "boolean" } } });
+const STATE = new URL(a.video ? "posted-video.json" : a.post ? "posted-post.json" : "posted.json", import.meta.url);
+const KIND = a.video ? "ролик" : a.post ? "пост" : "статья";
 const posted = existsSync(STATE) ? JSON.parse(readFileSync(STATE, "utf8")) : {};
 // хайповые статьи с цепляющими заголовками для ленты Дзена: идут в очередь первыми, порядок = порядок в файле
 const BAIT = JSON.parse(readFileSync(new URL("baits.json", import.meta.url), "utf8"));
@@ -100,6 +102,19 @@ export function toLines(html, url) {
     "- Раздел 3",
     "Всё целиком, с таблицами, картами и скриншотами, — на сайте: https://gta6spot.ru/x/",
   ]);
+  assert.deepEqual(toPost(html, "https://gta6spot.ru/x/"), {
+    lines: ['Как "быстро" заработать', "Вступление карта и жирное.", "Целиком, со скриншотами и картой: https://gta6spot.ru/x/"],
+    images: ["https://gta6spot.ru/c.jpg", "https://gta6spot.ru/_astro/a.webp"],
+  });
+}
+
+// --- HTML статьи → пост: заголовок, абзацы до первого раздела (не больше двух), ссылка; обложка и картинки статьи галереей
+export function toPost(html, url) {
+  const { title, og, parts } = page(html, url);
+  const h2 = parts.findIndex((p) => p.tag === "h2");
+  const intro = parts.slice(0, h2 < 0 ? undefined : h2).filter((p) => p.tag === "p" && !imgSrc(p) && !CREDIT.test(p.body)).slice(0, 2);
+  const images = [...new Set([og, ...parts.map(imgSrc)].filter(Boolean))].slice(0, IMAGES);
+  return { lines: [title, ...intro.map((p) => plain(p.body)), `Целиком, со скриншотами и картой: ${url}`], images };
 }
 
 // --- HTML статьи → сценарий ролика: [{text: что сказать, cap: надпись сверху, img, optional}] ---------------
@@ -276,6 +291,14 @@ if (a.video) {
   }
   writeFileSync(`/tmp/dzen-video-${slug}/desc.txt`, description);
   await publish(["video", "--file", file, "--title", title, "--text", `/tmp/dzen-video-${slug}/desc.txt`], title);
+} else if (a.post) {
+  const { lines, images } = toPost(html, url);
+  if (a.dry) {
+    console.log(`${lines.join("\n")}\n\n${images.join("\n")}`);
+    process.exit(0);
+  }
+  writeFileSync(`/tmp/dzen-post-${slug}.txt`, lines.join("\n"));
+  await publish(["post", "--text", `/tmp/dzen-post-${slug}.txt`, ...images.flatMap((i) => ["--image", i])], lines[0]);
 } else {
   const { title, lines } = toLines(html, url);
   if (a.dry) {
@@ -299,13 +322,13 @@ async function publish(args, title) {
     const url = draftUrl(String(e.stderr));
     if (!url) {
       // протухшие куки и прочие сбои: владелец узнаёт сразу, а не по пустой ленте
-      await notify(`Дзен-автопост упал (${a.video ? "ролик" : "статья"}): ${String(e.stderr).match(/^Error: .*$/m)?.[0] ?? e.message}`);
+      await notify(`Дзен-автопост упал (${KIND}): ${String(e.stderr).match(/^Error: .*$/m)?.[0] ?? e.message}`);
       throw e;
     }
     // капча: черновик остаётся, владелец публикует руками по ссылке из Telegram, очередь идёт дальше
     posted[slug] = { draft: url, date: new Date().toISOString() };
     writeFileSync(STATE, JSON.stringify(posted, null, 1));
-    await notify(`Дзен просит капчу — опубликуй ${a.video ? "ролик" : "статью"} руками:\n${title}\n${url}`);
+    await notify(`Дзен просит капчу — опубликуй ${KIND === "статья" ? "статью" : KIND} руками:\n${title}\n${url}`);
     console.log(JSON.stringify({ slug, draft: url }));
     return;
   }
