@@ -170,7 +170,7 @@ export function render(segs, pool, dir) {
   const audio = [];
   let t = 0;
   for (const [i, s] of segs.entries()) {
-    run("uvx", ["--from", "edge-tts@latest", "edge-tts", "--voice", "ru-RU-DmitryNeural", "--rate=+10%", "--text", say(s.text), "--write-media", `${dir}/a${i}.mp3`, "--write-subtitles", `${dir}/a${i}.srt`]);
+    run("uvx", ["--from", "edge-tts@latest", "edge-tts", "--voice", "ru-RU-SvetlanaNeural", "--rate=+10%", "--text", say(s.text), "--write-media", `${dir}/a${i}.mp3`, "--write-subtitles", `${dir}/a${i}.srt`]);
     const d = dur(`${dir}/a${i}.mp3`) + 0.35;
     if (s.optional && t + d > MAX - 5) continue; // на финальную фразу место оставляем
     // фраза длиннее ~5 с делится на несколько кадров: дальше по статье, по кругу
