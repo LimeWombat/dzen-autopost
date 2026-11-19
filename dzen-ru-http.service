@@ -1,0 +1,12 @@
+[Unit]
+Description=HTTP proxy 127.0.0.1:8128 -> RU SOCKS 1087 for the Dzen autoposter (Node fetch speaks only HTTP proxies)
+After=dzen-ru-socks.service
+Requires=dzen-ru-socks.service
+
+[Service]
+ExecStart=/usr/sbin/privoxy --no-daemon /etc/privoxy/dzen.config
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

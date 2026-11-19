@@ -1,0 +1,12 @@
+[Unit]
+Description=SOCKS 127.0.0.1:1087 through Timeweb (RU egress) for the Dzen autoposter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ssh -N -D 127.0.0.1:1087 -o BatchMode=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes don-estate-ru
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

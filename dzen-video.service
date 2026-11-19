@@ -6,6 +6,8 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=/root/dzen-autopost
+EnvironmentFile=-/root/gta6spot-tg/.env
+EnvironmentFile=-/root/dzen-autopost/.env
 Environment=PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/flock -n /run/dzen-video.lock /usr/bin/node /root/dzen-autopost/gta6spot.mjs --video
 TimeoutStartSec=40min

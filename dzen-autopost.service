@@ -6,4 +6,6 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=/root/dzen-autopost
+EnvironmentFile=-/root/gta6spot-tg/.env
+EnvironmentFile=-/root/dzen-autopost/.env
 ExecStart=/usr/bin/flock -n /run/dzen-autopost.lock /usr/bin/node /root/dzen-autopost/gta6spot.mjs

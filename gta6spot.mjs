@@ -230,16 +230,26 @@ ${ev.join("\n")}
   return out;
 }
 
-// id черновика из ошибки dzen-post.mjs (в ссылке до него стоит id канала, тоже 24 hex)
-const draftId = (err) => err.match(/капчу[^\n]*[/=]([0-9a-f]{24})(?:\/edit)?\s*$/m)?.[1];
-assert.equal(draftId("throw new Error(`Дзен требует капчу: ${editUrl}`);\nError: Дзен требует капчу, черновик сохранён — опубликуйте руками: https://dzen.ru/profile/editor/id/6a05d1811563b5370faf1ec9/6afec8a5aa50e90ff7480d41/edit\n    at"), "6afec8a5aa50e90ff7480d41");
-assert.equal(draftId("Error: Дзен требует капчу, черновик сохранён — опубликуйте руками: https://dzen.ru/profile/editor/id/6a05d1811563b5370faf1ec9?videoEditorPublicationId=6afec902c2b5cf07e1396436"), "6afec902c2b5cf07e1396436");
+// ссылка на черновик из ошибки dzen-post.mjs при капче
+const draftUrl = (err) => err.match(/капчу[^\n]*?(https:\/\/dzen\.ru\/profile\/editor\/\S+)\s*$/m)?.[1];
+assert.equal(draftUrl("throw new Error(`Дзен требует капчу: ${editUrl}`);\nError: Дзен требует капчу, черновик сохранён — опубликуйте руками: https://dzen.ru/profile/editor/id/6a05/6afe/edit\n    at"), "https://dzen.ru/profile/editor/id/6a05/6afe/edit");
+// уведомление владельцу в Telegram: бот канала gta6spot (TG_TOKEN), личный чат (TG_NOTIFY_CHAT) — из EnvironmentFile юнита
+async function notify(text) {
+  const { TG_TOKEN, TG_NOTIFY_CHAT } = process.env;
+  if (!TG_TOKEN || !TG_NOTIFY_CHAT) return console.error("TG_TOKEN/TG_NOTIFY_CHAT не заданы, уведомление не ушло");
+  const r = await fetch(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: TG_NOTIFY_CHAT, text, disable_web_page_preview: true }),
+  });
+  if (!r.ok) console.error(`Telegram → ${r.status} ${(await r.text()).slice(0, 200)}`);
+}
 
 // --- что постить -----------------------------------------------------------------------------
 let candidates = a.slug ? [a.slug] : null;
 if (!candidates) {
   const sitemap = [...(await get("/sitemap.xml")).matchAll(/<loc>https:\/\/gta6spot\.ru\/([a-z0-9-]+)\/<\/loc>/g)].map((m) => m[1]);
-  candidates = [...new Set([...slugs(await get("/tema/gaydy/")).filter((s) => sitemap.includes(s)), ...sitemap])].filter((s) => !posted[s] || posted[s].draft);
+  candidates = [...new Set([...slugs(await get("/tema/gaydy/")).filter((s) => sitemap.includes(s)), ...sitemap])].filter((s) => !posted[s]);
 }
 let slug, url, html;
 for (const s of candidates) {
@@ -263,7 +273,7 @@ if (a.video) {
     process.exit(0);
   }
   writeFileSync(`/tmp/dzen-video-${slug}/desc.txt`, description);
-  publish(["video", "--file", file, "--title", title, "--text", `/tmp/dzen-video-${slug}/desc.txt`]);
+  await publish(["video", "--file", file, "--title", title, "--text", `/tmp/dzen-video-${slug}/desc.txt`], title);
 } else {
   const { title, lines } = toLines(html, url);
   if (a.dry) {
@@ -271,28 +281,27 @@ if (a.video) {
     process.exit(0);
   }
   writeFileSync(`/tmp/dzen-${slug}.txt`, lines.join("\n"));
-  publish(["article", "--title", title, "--text", `/tmp/dzen-${slug}.txt`]);
+  await publish(["article", "--title", title, "--text", `/tmp/dzen-${slug}.txt`], title);
 }
 
-function publish(args) {
-  const post = (extra) => execFileSync(process.execPath, [new URL("dzen-post.mjs", import.meta.url).pathname, ...extra], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  // при капче Дзен оставляет черновик: запоминаем его, а на следующем запуске удаляем и пробуем ту же статью снова,
-  // чтобы черновики не копились
-  if (posted[slug]?.draft) {
-    try {
-      post(["delete", "--id", posted[slug].draft]);
-    } catch {}
-    delete posted[slug];
-  }
+async function publish(args, title) {
   let out;
   try {
-    out = post([...args, ...(a.draft ? ["--draft"] : [])]);
+    out = execFileSync(process.execPath, [new URL("dzen-post.mjs", import.meta.url).pathname, ...args, ...(a.draft ? ["--draft"] : [])], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      // Дзен с зарубежного IP просит капчу: его запросы идут через российский прокси (DZEN_PROXY из .env; туннель dzen-ru-socks.service + privoxy dzen-ru-http.service), остальное напрямую
+      env: { ...process.env, ...(process.env.DZEN_PROXY && { NODE_USE_ENV_PROXY: "1", HTTPS_PROXY: process.env.DZEN_PROXY, HTTP_PROXY: process.env.DZEN_PROXY }) },
+    });
   } catch (e) {
-    const id = draftId(String(e.stderr));
-    if (id) posted[slug] = { draft: id, date: new Date().toISOString() };
+    const url = draftUrl(String(e.stderr));
+    if (!url) throw e;
+    // капча: черновик остаётся, владелец публикует руками по ссылке из Telegram, очередь идёт дальше
+    posted[slug] = { draft: url, date: new Date().toISOString() };
     writeFileSync(STATE, JSON.stringify(posted, null, 1));
-    process.stderr.write(String(e.stderr));
-    process.exit(1);
+    await notify(`Дзен просит капчу — опубликуй ${a.video ? "ролик" : "статью"} руками:\n${title}\n${url}`);
+    console.log(JSON.stringify({ slug, draft: url }));
+    return;
   }
   const res = JSON.parse(out.trim().split("\n").pop());
   if (res.published) posted[slug] = { id: res.id, url: res.url, date: new Date().toISOString() };
