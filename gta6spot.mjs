@@ -4,7 +4,7 @@
 //
 //   node gta6spot.mjs [--slug kak-prodat-mashinu-gta-6] [--video] [--draft] [--dry]
 //
-// Без --slug берёт первую ещё не опубликованную: сначала гайды (/tema/gaydy/), потом остальное из sitemap.
+// Без --slug берёт первую ещё не опубликованную: сначала хайп из baits.json (с его заголовком), потом гайды (/tema/gaydy/), потом остальное из sitemap.
 // Опубликованные пишет в posted.json ({slug: {id, url, date}}). Таймер: 4 раза в день, по одной статье, через flock.
 // --video: вместо статьи вертикальный ролик до минуты (озвучка edge-tts, кадры статьи, субтитры, стинг в конце),
 // состояние в posted-video.json. Нужны ffmpeg и uvx. --dry с --video собирает mp4 и не грузит.
@@ -19,6 +19,8 @@ const IMAGES = 4;
 const { values: a } = parseArgs({ options: { slug: { type: "string" }, video: { type: "boolean" }, draft: { type: "boolean" }, dry: { type: "boolean" } } });
 const STATE = new URL(a.video ? "posted-video.json" : "posted.json", import.meta.url);
 const posted = existsSync(STATE) ? JSON.parse(readFileSync(STATE, "utf8")) : {};
+// хайповые статьи с цепляющими заголовками для ленты Дзена: идут в очередь первыми, порядок = порядок в файле
+const BAIT = JSON.parse(readFileSync(new URL("baits.json", import.meta.url), "utf8"));
 
 const get = async (u) => {
   const r = await fetch(u.startsWith("http") ? u : SITE + u);
@@ -36,7 +38,7 @@ const abs = (src) => (src.startsWith("/") ? SITE + src : src);
 const CREDIT = /^\s*<em>(Скриншоты|Карта):/;
 const imgSrc = (p) => p.tag === "p" && p.body.trim().startsWith("<img") && abs(p.body.match(/src="([^"]+)"/)[1]);
 function page(html, url) {
-  const title = decode(html.match(/<meta property="og:title" content="([^"]+)"/)[1]);
+  const title = BAIT[url.split("/").at(-2)] ?? decode(html.match(/<meta property="og:title" content="([^"]+)"/)[1]);
   const og = html.match(/<meta property="og:image" content="([^"]+)"/)?.[1];
   const prose = html.match(/<div class="prose"[^>]*>([\s\S]*?)<\/div>\s*(?:<\/article>|<div|<aside)/)?.[1];
   if (!prose) throw new Error(`${url}: нет <div class="prose">`);
@@ -249,7 +251,7 @@ async function notify(text) {
 let candidates = a.slug ? [a.slug] : null;
 if (!candidates) {
   const sitemap = [...(await get("/sitemap.xml")).matchAll(/<loc>https:\/\/gta6spot\.ru\/([a-z0-9-]+)\/<\/loc>/g)].map((m) => m[1]);
-  candidates = [...new Set([...slugs(await get("/tema/gaydy/")).filter((s) => sitemap.includes(s)), ...sitemap])].filter((s) => !posted[s]);
+  candidates = [...new Set([...Object.keys(BAIT).filter((s) => sitemap.includes(s)), ...slugs(await get("/tema/gaydy/")).filter((s) => sitemap.includes(s)), ...sitemap])].filter((s) => !posted[s]);
 }
 let slug, url, html;
 for (const s of candidates) {
