@@ -37,6 +37,8 @@ const decode = (s) => s.replace(/&(#x[\da-f]+|#\d+|\w+);/gi, (m, e) => (e[0] ===
 const plain = (h) => decode(h.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").replace(/ ([.,;:!?)»])/g, "$1").trim();
 const abs = (src) => (src.startsWith("/") ? SITE + src : src);
 
+// хештеги в конце каждого текста (владелец 20.11 дал набор с чужих постов, нерелевантные Netflix/трейлер выкинуты)
+const TAGS = "#gta6 #гта6 #gtavi #rockstargames #геймплейgta6 #gta6вайссити #джейсонилусия";
 const CREDIT = /^\s*<em>(Скриншоты|Карта|Видео):/;
 // картинка абзаца: <img src> или постер ролика (<video> Astro тоже заворачивает в <p>)
 const imgSrc = (p) => p.tag === "p" && /^\s*<(img|video)\b/.test(p.body) && abs(p.body.match(/^\s*<video/.test(p.body) ? /poster="([^"]+)"/ : /src="([^"]+)"/)[1]);
@@ -79,7 +81,7 @@ export function toLines(html, url) {
   }
   if (og) lines.splice(1, 0, og); // обложка после первого абзаца
   if (rest.length) lines.push("В полной версии гайда ещё:", ...rest.map((r) => `- ${r}`));
-  lines.push(`Всё целиком, с таблицами, картами и скриншотами, — на сайте: ${url}`);
+  lines.push(`Всё целиком, с таблицами, картами и скриншотами, — на сайте: ${url}`, TAGS);
   return { title, lines: lines.filter((l) => !/^(-|\d+\.|#+)?\s*$/.test(l)) };
 }
 
@@ -103,9 +105,10 @@ export function toLines(html, url) {
     "В полной версии гайда ещё:",
     "- Раздел 3",
     "Всё целиком, с таблицами, картами и скриншотами, — на сайте: https://gta6spot.ru/x/",
+    TAGS,
   ]);
   assert.deepEqual(toPost(html, "https://gta6spot.ru/x/"), {
-    lines: ['Как "быстро" заработать', "Вступление карта и жирное.", "Целиком, со скриншотами и картой: https://gta6spot.ru/x/"],
+    lines: ['Как "быстро" заработать', "Вступление карта и жирное.", "Целиком, со скриншотами и картой: https://gta6spot.ru/x/", TAGS],
     images: ["https://gta6spot.ru/c.jpg", "https://gta6spot.ru/_astro/a.webp"],
   });
 }
@@ -116,7 +119,7 @@ export function toPost(html, url) {
   const h2 = parts.findIndex((p) => p.tag === "h2");
   const intro = parts.slice(0, h2 < 0 ? undefined : h2).filter((p) => p.tag === "p" && !imgSrc(p) && !CREDIT.test(p.body)).slice(0, 2);
   const images = [...new Set([og, ...parts.map(imgSrc)].filter(Boolean))].slice(0, IMAGES);
-  return { lines: [title, ...intro.map((p) => plain(p.body)), `Целиком, со скриншотами и картой: ${url}`], images };
+  return { lines: [title, ...intro.map((p) => plain(p.body)), `Целиком, со скриншотами и картой: ${url}`, TAGS], images };
 }
 
 // --- HTML статьи → сценарий ролика: [{text: что сказать, cap: надпись сверху, img, optional}] ---------------
@@ -144,7 +147,7 @@ export function toScript(html, url) {
   for (const s of secs.filter((s) => s.paras[0]).slice(0, 3))
     segs.push({ text: `${s.head}${/[.!?]$/.test(s.head) ? "" : "."} ${first(s.paras[0], 1)}`, cap: s.head, img: pick(s.imgs), optional: true });
   segs.push({ text: "Полный гайд с картами и скриншотами на сайте gta6spot.ru.", cap: "Полный гайд на сайте", img: segs.at(-1).img });
-  return { title, segs, pool: [...new Set([...pool, og].filter(Boolean))], description: `${first(intro.paras[0] ?? title, 2)}\n\nПолный гайд: ${url}` };
+  return { title, segs, pool: [...new Set([...pool, og].filter(Boolean))], description: `${first(intro.paras[0] ?? title, 2)}\n\nПолный гайд: ${url}\n\n${TAGS}` };
 }
 {
   const html = `<meta property="og:title" content="Заголовок"><meta property="og:image" content="https://gta6spot.ru/c.jpg">
@@ -159,7 +162,7 @@ export function toScript(html, url) {
     ["Третий. Три", "c.jpg"],
     ["Полный гайд с картами и скриншотами на сайте gta6spot.ru.", "c.jpg"],
   ]);
-  assert.equal(description, "Первое. Второе!\n\nПолный гайд: https://gta6spot.ru/x/");
+  assert.equal(description, `Первое. Второе!\n\nПолный гайд: https://gta6spot.ru/x/\n\n${TAGS}`);
 }
 
 // --- сценарий → mp4 1080x1920: размытый фон, кадр 16:9 с медленным наездом, надпись, субтитры, стинг ------------
