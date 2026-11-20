@@ -192,7 +192,17 @@ export function render(segs, pool, dir) {
   const audio = [];
   let t = 0;
   for (const [i, s] of segs.entries()) {
-    run("uvx", ["--from", "edge-tts@latest", "edge-tts", "--voice", "ru-RU-SvetlanaNeural", "--rate=+10%", "--text", say(s.text), "--write-media", `${dir}/a${i}.mp3`, "--write-subtitles", `${dir}/a${i}.srt`]);
+    // edge-tts с contabo через раз отвечает NoAudioReceived на случайной фразе (20.11: 2 из 3 одинаковых запросов),
+    // поэтому до 8 попыток с паузой
+    for (let k = 1; ; k++) {
+      try {
+        run("uvx", ["--from", "edge-tts@latest", "edge-tts", "--voice", "ru-RU-SvetlanaNeural", "--rate=+10%", "--text", say(s.text), "--write-media", `${dir}/a${i}.mp3`, "--write-subtitles", `${dir}/a${i}.srt`]);
+        break;
+      } catch (e) {
+        if (k === 8) throw e;
+        run("sleep", ["2"]);
+      }
+    }
     const d = dur(`${dir}/a${i}.mp3`) + 0.35;
     if (s.optional && t + d > MAX - 5) continue; // на финальную фразу место оставляем
     // фраза длиннее ~5 с делится на несколько кадров: дальше по статье, по кругу
@@ -222,7 +232,6 @@ export function render(segs, pool, dir) {
     }
     t += d;
   }
-  ev.push(`Dialogue: 0,${ts(0)},${ts(t)},Site,,0,0,0,,GTA6SPOT.RU`);
   writeFileSync(`${dir}/subs.ass`, `[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -233,7 +242,6 @@ WrapStyle: 0
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Cap,Oswald,84,${COLOR.yellow},${COLOR.yellow},${COLOR.navy},&H00000000,-1,0,0,0,100,100,0,0,1,5,0,8,70,70,230,1
 Style: Sub,Oswald,76,${COLOR.white},${COLOR.white},${COLOR.navy},&H00000000,-1,0,0,0,100,100,0,0,1,4,0,8,70,70,1270,1
-Style: Site,Oswald,58,${COLOR.pink},${COLOR.pink},${COLOR.navy},&H00000000,-1,0,0,0,100,100,2,0,1,4,0,2,70,70,150,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -242,9 +250,15 @@ ${ev.join("\n")}
   const out = `${dir}/out.mp4`;
   const k = clips.length;
   const norm = (j) => `[${j}:v]fps=30,scale=1080:1920,setsar=1,format=yuv420p[v${j}]`;
-  run("ffmpeg", ["-y", "-v", "error", ...clips.flatMap((c) => ["-i", c]), "-i", `${ASSETS}sting.mp4`, ...audio.flatMap(([f]) => ["-i", f]), "-filter_complex", [
+  // анимированный водяной знак (8-секундная петля из brand/out gta6spot) внизу по центру, пока идёт ролик; на заставке в конце своё лого.
+  // -c:v libvpx-vp9 перед -i: встроенный декодер vp9 теряет альфу
+  const wm = k + 1 + audio.length;
+  run("ffmpeg", ["-y", "-v", "error", ...clips.flatMap((c) => ["-i", c]), "-i", `${ASSETS}sting.mp4`, ...audio.flatMap(([f]) => ["-i", f]),
+    "-stream_loop", "-1", "-c:v", "libvpx-vp9", "-i", `${ASSETS}watermark-loop.webm`, "-filter_complex", [
     ...[...Array(k + 1).keys()].map(norm),
-    `${[...Array(k + 1).keys()].map((j) => `[v${j}]`).join("")}concat=n=${k + 1}:v=1:a=0,ass=${dir}/subs.ass:fontsdir=${ASSETS}[v]`,
+    `${[...Array(k + 1).keys()].map((j) => `[v${j}]`).join("")}concat=n=${k + 1}:v=1:a=0,ass=${dir}/subs.ass:fontsdir=${ASSETS}[vs]`,
+    `[${wm}:v]scale=360:-1,format=rgba,colorchannelmixer=aa=0.92[w]`,
+    `[vs][w]overlay=(W-w)/2:H-h-140:enable='lt(t,${t.toFixed(3)})':shortest=1[v]`,
     ...audio.map(([, d], j) => `[${k + 1 + j}:a]apad=whole_dur=${d.toFixed(3)}[a${j}]`),
     `${audio.map((_, j) => `[a${j}]`).join("")}concat=n=${audio.length}:v=0:a=1,apad[a]`,
   ].join(";"), "-map", "[v]", "-map", "[a]", "-t", (t + dur(`${ASSETS}sting.mp4`)).toFixed(3),
