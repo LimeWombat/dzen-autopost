@@ -9,6 +9,8 @@
 // --video: вместо статьи вертикальный ролик до минуты (озвучка edge-tts, кадры статьи, субтитры, стинг в конце),
 // состояние в posted-video.json. Нужны ffmpeg и uvx. --dry с --video собирает mp4 и не грузит.
 // --post: короткий пост в ленту (заголовок, вступление, ссылка, до 4 картинок галереей), состояние в posted-post.json.
+// --vk: тот же короткий пост на стену сообщества ВК (VK_TOKEN пользователя-админа с правами wall,photos,offline и VK_GROUP из .env),
+// состояние в posted-vk.json. Ключ сообщества не годится: wall.post ВК принимает только ключ пользователя.
 import assert from "node:assert";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -17,9 +19,9 @@ import { parseArgs } from "node:util";
 const SITE = "https://gta6spot.ru";
 const SECTIONS = 2; // сколько разделов статьи идут в анонс целиком
 const IMAGES = 4;
-const { values: a } = parseArgs({ options: { slug: { type: "string" }, video: { type: "boolean" }, post: { type: "boolean" }, draft: { type: "boolean" }, dry: { type: "boolean" } } });
-const STATE = new URL(a.video ? "posted-video.json" : a.post ? "posted-post.json" : "posted.json", import.meta.url);
-const KIND = a.video ? "ролик" : a.post ? "пост" : "статья";
+const { values: a } = parseArgs({ options: { slug: { type: "string" }, video: { type: "boolean" }, post: { type: "boolean" }, vk: { type: "boolean" }, draft: { type: "boolean" }, dry: { type: "boolean" } } });
+const STATE = new URL(a.video ? "posted-video.json" : a.vk ? "posted-vk.json" : a.post ? "posted-post.json" : "posted.json", import.meta.url);
+const KIND = a.video ? "ролик" : a.vk ? "пост ВК" : a.post ? "пост" : "статья";
 const posted = existsSync(STATE) ? JSON.parse(readFileSync(STATE, "utf8")) : {};
 // хайповые статьи с цепляющими заголовками для ленты Дзена: идут в очередь первыми, порядок = порядок в файле
 const BAIT = JSON.parse(readFileSync(new URL("baits.json", import.meta.url), "utf8"));
@@ -310,6 +312,21 @@ if (a.video) {
   }
   writeFileSync(`/tmp/dzen-video-${slug}/desc.txt`, description);
   await publish(["video", "--file", file, "--title", title, "--text", `/tmp/dzen-video-${slug}/desc.txt`], title);
+} else if (a.vk) {
+  const { lines, images } = toPost(html, url);
+  if (a.dry) {
+    console.log(`${lines.join("\n\n")}\n\n${images.join("\n")}`);
+    process.exit(0);
+  }
+  try {
+    const id = await vkPost(lines.join("\n\n"), images, url);
+    posted[slug] = { id, url: `https://vk.com/wall-${process.env.VK_GROUP}_${id}`, date: new Date().toISOString() };
+    writeFileSync(STATE, JSON.stringify(posted, null, 1));
+    console.log(JSON.stringify({ slug, ...posted[slug] }));
+  } catch (e) {
+    await notify(`ВК-автопост упал: ${e.message}`);
+    throw e;
+  }
 } else if (a.post) {
   const { lines, images } = toPost(html, url);
   if (a.dry) {
@@ -326,6 +343,30 @@ if (a.video) {
   }
   writeFileSync(`/tmp/dzen-${slug}.txt`, lines.join("\n"));
   await publish(["article", "--title", title, "--text", `/tmp/dzen-${slug}.txt`], title);
+}
+
+// --- ВК: картинки (webp сайта ВК не берёт → jpg через ffmpeg) грузятся на стену по одной, потом wall.post от имени сообщества ---
+async function vk(method, params) {
+  const r = await (await fetch(`https://api.vk.com/method/${method}`, { method: "POST", body: new URLSearchParams({ ...params, access_token: process.env.VK_TOKEN, v: "5.199" }) })).json();
+  if (r.error) throw new Error(`VK ${method}: ${r.error.error_code} ${r.error.error_msg}`);
+  return r.response;
+}
+async function vkPost(message, images, link) {
+  const group_id = process.env.VK_GROUP;
+  if (!process.env.VK_TOKEN || !group_id) throw new Error("VK_TOKEN/VK_GROUP не заданы в .env");
+  const photos = [];
+  for (const [i, src] of images.entries()) {
+    const jpg = `/tmp/vk-${process.pid}-${i}.jpg`;
+    run("ffmpeg", ["-v", "error", "-y", "-i", src, "-frames:v", "1", "-q:v", "3", jpg]);
+    const { upload_url } = await vk("photos.getWallUploadServer", { group_id });
+    const form = new FormData();
+    form.append("photo", new Blob([readFileSync(jpg)], { type: "image/jpeg" }), "photo.jpg");
+    const up = await (await fetch(upload_url, { method: "POST", body: form })).json();
+    const [p] = await vk("photos.saveWallPhoto", { group_id, server: up.server, photo: up.photo, hash: up.hash });
+    photos.push(`photo${p.owner_id}_${p.id}`);
+  }
+  const { post_id } = await vk("wall.post", { owner_id: `-${group_id}`, from_group: 1, message, attachments: [...photos, link].join(",") });
+  return post_id;
 }
 
 async function publish(args, title) {

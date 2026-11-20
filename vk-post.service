@@ -1,0 +1,13 @@
+[Unit]
+Description=gta6spot: next article -> VK community wall, one short post per run (title, intro, photos, link)
+After=network-online.target dzen-ru-http.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/dzen-autopost
+EnvironmentFile=-/root/gta6spot-tg/.env
+EnvironmentFile=-/root/dzen-autopost/.env
+# VK API through the same RU egress as Dzen (privoxy dzen-ru-http -> ssh tunnel to don-estate-ru): the user token was issued in Russia
+Environment=NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://127.0.0.1:8128 HTTP_PROXY=http://127.0.0.1:8128
+ExecStart=/usr/bin/flock -n /run/vk-post.lock /usr/bin/node /root/dzen-autopost/gta6spot.mjs --vk

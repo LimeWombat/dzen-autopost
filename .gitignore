@@ -2,3 +2,5 @@ cookies.txt
 .env*
 posted.json
 posted-video.json
+posted-post.json
+posted-vk.json
