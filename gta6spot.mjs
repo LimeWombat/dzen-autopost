@@ -353,6 +353,8 @@ async function publish(args, title) {
   }
   const res = JSON.parse(out.trim().split("\n").pop());
   if (res.published) posted[slug] = { id: res.id, url: res.url, date: new Date().toISOString() };
+  // --draft по просьбе владельца: черновик публикует он сам, как после капчи, поэтому очередь идёт дальше без дубля
+  else if (a.draft) posted[slug] = { draft: res.url, date: new Date().toISOString() };
   writeFileSync(STATE, JSON.stringify(posted, null, 1));
   console.log(JSON.stringify({ slug, ...res }));
 }
