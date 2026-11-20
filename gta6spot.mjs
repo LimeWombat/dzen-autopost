@@ -37,8 +37,10 @@ const decode = (s) => s.replace(/&(#x[\da-f]+|#\d+|\w+);/gi, (m, e) => (e[0] ===
 const plain = (h) => decode(h.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").replace(/ ([.,;:!?)»])/g, "$1").trim();
 const abs = (src) => (src.startsWith("/") ? SITE + src : src);
 
-const CREDIT = /^\s*<em>(Скриншоты|Карта):/;
-const imgSrc = (p) => p.tag === "p" && p.body.trim().startsWith("<img") && abs(p.body.match(/src="([^"]+)"/)[1]);
+const CREDIT = /^\s*<em>(Скриншоты|Карта|Видео):/;
+// картинка абзаца: <img src> или постер ролика (<video> Astro тоже заворачивает в <p>)
+const imgSrc = (p) => p.tag === "p" && /^\s*<(img|video)\b/.test(p.body) && abs(p.body.match(/^\s*<video/.test(p.body) ? /poster="([^"]+)"/ : /src="([^"]+)"/)[1]);
+assert.equal(imgSrc({ tag: "p", body: '<video src="/video/a.mp4" poster="/video/a.jpg" loop></video>' }), "https://gta6spot.ru/video/a.jpg");
 function page(html, url) {
   const title = BAIT[url.split("/").at(-2)] ?? decode(html.match(/<meta property="og:title" content="([^"]+)"/)[1]);
   const og = html.match(/<meta property="og:image" content="([^"]+)"/)?.[1];
