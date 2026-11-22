@@ -46,7 +46,9 @@ const CREDIT = /^\s*<em>(Скриншоты|Карта|Видео):/;
 const imgSrc = (p) => p.tag === "p" && /^\s*<(img|video)\b/.test(p.body) && abs(p.body.match(/^\s*<video/.test(p.body) ? /poster="([^"]+)"/ : /src="([^"]+)"/)[1]);
 assert.equal(imgSrc({ tag: "p", body: '<video src="/video/a.mp4" poster="/video/a.jpg" loop></video>' }), "https://gta6spot.ru/video/a.jpg");
 function page(html, url) {
-  const title = BAIT[url.split("/").at(-2)] ?? decode(html.match(/<meta property="og:title" content="([^"]+)"/)[1]);
+  // Dzen rejects titles over 140 chars (InputValidationException), fall back to the site title
+  const bait = BAIT[url.split("/").at(-2)];
+  const title = bait && [...bait].length <= 140 ? bait : decode(html.match(/<meta property="og:title" content="([^"]+)"/)[1]);
   const og = html.match(/<meta property="og:image" content="([^"]+)"/)?.[1];
   const prose = html.match(/<div class="prose"[^>]*>([\s\S]*?)<\/div>\s*(?:<\/article>|<div|<aside|<nav)/)?.[1];
   if (!prose) throw new Error(`${url}: нет <div class="prose">`);

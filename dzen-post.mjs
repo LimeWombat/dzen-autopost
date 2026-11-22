@@ -130,7 +130,13 @@ const common = (id, preview) => ({
   visibleComments: "subscribe-visible", visibilityType: "all", premiumTariffs: [], tagsInput: { tags: [], detectedTagsShown: false },
 });
 async function save(id, body, editUrl) {
-  await req("/editor-api/v2/update-publication-content", { query: { publisherId: PID }, json: body });
+  try {
+    await req("/editor-api/v2/update-publication-content", { query: { publisherId: PID }, json: body });
+  } catch (e) {
+    // otherwise every failed run leaves an empty draft in the studio
+    await req(`/editor-api/v2/publisher/${PID}/publications/${id}`, { method: "DELETE" }).catch(() => {});
+    throw e;
+  }
   if (!a.draft) {
     try {
       await req("/editor-api/v2/update-publication-content-and-publish", { query: { publisherId: PID }, json: body });
